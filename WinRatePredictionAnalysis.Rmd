@@ -1,0 +1,424 @@
+---
+title: "Data Analysis of Predicting NBA Player Win Rate"
+author: "Rieva Putri Safa"
+class: "IS388C"
+date: "2021"
+output: openintro::lab_report
+---
+
+### LOAD LIBRARY
+
+```{r, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(readxl)
+library(Amelia)
+library(ggplot2)
+library(factoextra)
+library(ClusterR)
+```
+
+### DATA PREPARATION
+
+```{r}
+#-----------Read Excel
+NBA <- read_excel("WinRatePredictionAnalysis.xlsx")
+View(NBA)
+summary(NBA)
+str(NBA) #Checking the data type
+
+#Change Data to Numeric
+NBA$mins <- as.numeric(NBA$mins)
+NBA$points <- as.numeric(NBA$points)
+NBA$goalMade <- as.numeric(NBA$goalMade)
+NBA$goalAttempt <- as.numeric(NBA$goalAttempt)
+NBA$goalPercentage <- as.numeric(NBA$goalPercentage)
+NBA$threePM <- as.numeric(NBA$threePM)
+NBA$threePA <- as.numeric(NBA$threePA)
+NBA$threePP <- as.numeric(NBA$threePP)
+NBA$freeTM <- as.numeric(NBA$freeTM)
+NBA$freeTA <- as.numeric(NBA$freeTA)
+NBA$freeTP <- as.numeric(NBA$freeTP)
+NBA$rebound <- as.numeric(NBA$rebound)
+NBA$assist <- as.numeric(NBA$assist)
+NBA$steal <- as.numeric(NBA$steal)
+NBA$block <- as.numeric(NBA$block)
+NBA$rankings <- as.numeric(NBA$rankings)
+
+#-----------Rechecking if the data type already changed
+str(NBA) 
+summary(NBA)
+
+#Filter and Change to As.factor 
+NBA$win[NBA$wins < 27.98] <- "< 27.98"
+NBA$win[NBA$wins >= 27.98] <- ">= 27.98"
+NBA$win <- as.factor(NBA$win)
+
+#-----------Plot
+#Boxplot
+boxplot(NBA$rebound ~ NBA$wins, main = "Win Rate by Rebound Boxplot", xlab = "Wins", ylab = "Rebound", col = rainbow(2))
+boxplot(NBA$assist ~ NBA$wins, main = "Win Rate by Assist Boxplot", xlab = "Wins", ylab = "Assist", col = rainbow(2))
+boxplot(NBA$steal ~ NBA$wins, main = "Win Rate by Steal Boxplot", xlab = "Wins", ylab = "Steal", col = rainbow(2))
+boxplot(NBA$block ~ NBA$wins, main = "Win Rate by Block Boxplot", xlab = "Wins", ylab = "Block", col = rainbow(2))
+
+#Boxplot
+boxplot(NBA$wins, main = "Predict Win in Basketball 2K", xlab = "Total wins", ylab = "Game Amount", col = c("cyan"), horizontal = TRUE, outline = FALSE)
+
+#Barplot 1 Age
+ggplot2::ggplot(NBA = NBA) + 
+  aes(x = NBA$age, fill = NBA$age) +
+  geom_bar(fill ="dark blue") +
+  labs(title = "Distribution by Age of Player Basketball NBA 2k", subtitle = "Study Case 1 Barplot Visualization", caption = "X axis = Range Age, Y axis = Player Amount")
+
+#Barplot 2 Rank
+ggplot2::ggplot(NBA = NBA) + 
+  aes(x = NBA$rankings, fill = NBA$rankings) +
+  geom_bar(fill ="dark red") +
+  labs(title = "Distribution by Ranked of Player Basketball NBA 2k", subtitle = "Study Case 1 Barplot Visualization", caption = "X axis = Rank Number, Y axis = Player Amount")
+
+#Barplot 3 Season
+ggplot2::ggplot(NBA = NBA) + 
+  aes(x = NBA$season, fill = NBA$season) +
+  geom_bar(fill =" purple") +
+  labs(title = "Distribution NBA 2K Player Rank by Season", subtitle = "Study Case 1 Barplot Visualization", caption = "X axis = Season , Y axis = Player Amount")
+
+#Scatterplot
+plot(NBA$wins, main = "Scatterplot of Win Rate", xlab = "Players", ylab = "Wins", col = c("cyan"))
+
+#-----------Summary Data
+summary(NBA$wins)
+
+#-----------Drop Data
+datnum <- select_if(NBA, is.numeric)
+#Ensuring data is numerical
+str(datnum) 
+win <- NBA$win
+
+#-----------Build matrix with cbind function
+dataNumerical <- cbind(datnum, win)
+dataNumerical <- subset(dataNumerical, select = c(win,age,gamesPlayed,loss,mins,points,goalMade,goalAttempt,goalPercentage,threePM, threePA,threePP, freeTM, freeTA, freeTP, rebound, assist, steal, block, rankings))
+
+#-----------Checking and remove "NA"
+dataNumerical <- na.omit(dataNumerical)
+str(dataNumerical)
+
+#-----------Validating missing data
+missmap(dataNumerical, legend = TRUE, main = "Visualize Missing Observation\nafter Omitting NAs")
+
+#-----------Splitting data into training and testing, on 80:20
+NIM <- 47659
+set.seed(NIM)
+samp<-sample(nrow(dataNumerical), 0.8*nrow(dataNumerical))
+training <- dataNumerical[samp,]
+testing <- dataNumerical[-samp,]
+
+prop.table(table(dataNumerical$win)) * 100
+prop.table(table(training$win)) * 100
+prop.table(table(testing$win)) * 100
+```
+K-MEANS CLUSTERING ALGORITHM
+```{r}
+#----------------------K-MEANS CLUSTERING ALGORITHM----------------------#
+#I am going to compare which type of K-Means clustering (unscaled or scaled) is better based on Corrected Rand Index, Variation of Information, and Accuracy/Rand Index
+
+
+##---------------------- UNSCALED/NO SCALING----------------------##
+
+#-----------determining the optimal number of clusters
+#--Average Silhouette Method
+
+#--Automatic plot  with package factoextra
+factoextra::fviz_nbclust(training[,2:20], FUNcluster = kmeans, method = "silhouette") + labs(subtitle = "Average Silhouette Method")
+#According to Avg Silhouette Method, there are 2 optimal clusters (k = 2)
+
+#-----------------------CLUSTERING USING K-MEANS----------------------
+km <- kmeans(training[,2:20], centers = 2, nstart = 25) 
+
+#---------------------------PLOT THE CLUSTERS-------------------------
+factoextra::fviz_cluster(km, data = training[,2:20],
+             palette = c("coral", "light blue"), 
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+)
+
+#---------------------------CLUSTER VALIDATION------------------------
+#--External validation using Rand Index
+#--Compute the Corrected Rand Index
+(cri_km <- external_validation(as.numeric(training$win), km$cluster, 
+                          method = "adjusted_rand_index", summary_stats = T))
+
+#--Compute the Variation of Information
+(vi_km <- external_validation(as.numeric(training$win), km$cluster, 
+                          method = "var_info", summary_stats = F))
+
+
+
+##---------------------- SCALED/WITH SCALING ----------------------##
+scaledDat <- scale(training[,2:20])
+
+#-----------DETERMINE THE OPTIMAL NUMBER OF CLUSTERS------------------
+#--Average Silhouette Method 
+#--Automatic plot  with factoextra package
+factoextra::fviz_nbclust(scaledDat, kmeans, method = "silhouette") +
+  labs(subtitle = "Average Silhouette Method")
+
+#According to Avg Silhouette Method, there are 2 optimal clusters (k = 2)
+
+
+#-----------------------CLUSTERING USING K-MEANS----------------------
+km1 <- kmeans(scaledDat, centers = 2, nstart = 25) 
+
+#---------------------------PLOT THE CLUSTERS-------------------------
+factoextra::fviz_cluster(km1, data = scaledDat,
+             palette = c("violet","green"),
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+)
+
+#---------------------------CLUSTER VALIDATION------------------------
+#--External validation using Rand Index
+#--Compute the Corrected Rand Index
+(cri_km1 <- external_validation(as.numeric(training$win), km1$cluster, 
+                          method = "adjusted_rand_index", summary_stats = T))
+
+#--Compute the Variation of Information
+(vi_km1 <- external_validation(as.numeric(training$win), km1$cluster, 
+                          method = "var_info", summary_stats = F))
+
+
+
+###---------------------- CONCLUSION ----------------------###
+# In conclusion, the K-Mean algorithm with unscaled data is better because it has lower Variation of Information (1.2831 < 1.8478), higher Accuracy/Rand-index (0.6471 > 0.5368), and higher Corrected Rand Index (0.2942676 > 0.07360466) than the scaled model.
+```
+
+
+
+DBSCAN CLUSTERING ALGORITHM
+```{r}
+#STEP 1
+#We will be calling all of the libraries that we are going to use for this project
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(dbscan)
+library(fpc)
+library(factoextra)
+library(ggplot2)
+library(gridExtra)
+library(rstatix)
+library(ggpubr)
+library(caret)
+library(GGally)
+library(tidyverse)
+library(dplyr)
+library(knitr) 
+library(party)
+library(rpart)
+library(rpart.plot)
+library(ClusterR)
+
+Mydat <- read_excel("CL7_RievaPutriSafa_47659.xlsx")
+# EDA ----------------------------------------------------------------
+#Show structure of the data
+str(Mydat) 
+
+#Show summary of the data
+summary(Mydat)
+
+
+#Next is to change data type that in not numeric to data type that is numeric
+Mydat$mins <- as.numeric(Mydat$mins)
+Mydat$points <- as.numeric(Mydat$points)
+Mydat$goalMade <- as.numeric(Mydat$goalMade)
+Mydat$goalAttempt <- as.numeric(Mydat$goalAttempt)
+Mydat$goalPercentage <- as.numeric(Mydat$goalPercentage)
+Mydat$threePM <- as.numeric(Mydat$threePM)
+Mydat$threePA <- as.numeric(Mydat$threePA)
+Mydat$threePP <- as.numeric(Mydat$threePP)
+Mydat$freeTM <- as.numeric(Mydat$freeTM)
+Mydat$freeTA <- as.numeric(Mydat$freeTA)
+Mydat$freeTP <- as.numeric(Mydat$freeTP)
+Mydat$rebound <- as.numeric(Mydat$rebound)
+Mydat$assist <- as.numeric(Mydat$assist)
+Mydat$steal <- as.numeric(Mydat$steal)
+Mydat$block <- as.numeric(Mydat$block)
+Mydat$rankings <- as.numeric(Mydat$rankings)
+
+#We will be re-checking if all of the data type has been change to numeric
+str(Mydat)
+
+#We are filtering and turning the variable 'wins' to an as.factor
+#We're using 27.98 (mean) as a reference, so that if we are below the mean in this case 27.98, it means that the result will be poor and if we're above, t means the result will officially be better 
+Mydat$win[Mydat$wins < 27.98] <- "< 27.98"
+Mydat$win[Mydat$wins >= 27.98] <- ">= 27.98"
+Mydat$win <- as.factor(Mydat$win)
+
+#dataNumerical <- subset(Mydat, select = c(win,age,gamesPlayed,loss,mins,points,goalMade,goalAttempt,goalPercentage,threePM,threePA,threePP,freeTM, freeTA, freeTP, rebound, assist, steal, block, rankings))
+dataNumerical_new <- Mydat %>% dplyr :: select (-team, -season, -player)
+
+#By using 'na.omit' we can eliminate "NA"
+dataNumerical_new <- na.omit(dataNumerical_new)
+str(dataNumerical_new)
+
+#The process of splitting data (80% training and 20% testing)
+samples <- sample(nrow(dataNumerical_new), 0.8 * nrow(dataNumerical_new), replace = FALSE)
+
+training <- dataNumerical_new[samples,]
+testing <- dataNumerical_new[-samples,]
+
+nrow(training)
+nrow(testing)
+
+#We will me looking at the summary of data coming from the variable 'wins' from 'Mydat'
+summary(Mydat$wins)
+boxplot(Mydat$wins)
+
+# wilcoxon test ------------------------------------------------------
+wilcox.test(Mydat$loss, Mydat$wins, paired = TRUE) #p.value = 0.3333
+wilcox.test(Mydat$age, Mydat$wins, paired = TRUE) #p-value = 6.966e-07
+wilcox.test(Mydat$points, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$gamesPlayed, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$mins, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$goalMade, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$goalAttempt, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$goalPercentage, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$threePM, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$threePA, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$threePP, Mydat$wins, paired = TRUE) #p-value = 6.762e-05
+wilcox.test(Mydat$freeTM, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$freeTA, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$freeTP, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$rebound, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$assist, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$steal, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$block, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+wilcox.test(Mydat$rankings, Mydat$wins, paired = TRUE) #p-value < 2.2e-16
+
+# find epsilon and perform DBSCAN
+
+# calculate suitable epsilon -----------------------------------------
+dbscan::kNNdistplot(training[,2:20], k = 2)
+epsilon <- 50
+abline(h = 50, lty = 2)
+
+# perform DBScan -----------------------------------------------------
+db2 <- fpc::dbscan(training[,2:20], eps = epsilon, MinPts = 5)
+db2
+
+db3 <- dbscan::dbscan(training[,2:20], eps = epsilon, minPts = 10)
+db3
+
+#e-----------
+# visualize cluster
+factoextra::fviz_cluster(db2, data = training[,2:20], show.clust.cent = TRUE, geom = "point", palette = "jco", ggtheme = theme_classic())
+
+plot(db2, training[,2:20], main = "DBSCAN Data NBA 2K Rating With Real NBA Stats")
+
+
+#f. indicate outliers and show the data-----------
+# Mydat$loss vs Mydat$wins
+outlier1 <- boxplot(Mydat$loss ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier1
+boxplot(Mydat$loss ~ Mydat$wins, data = training, main = "Mydat$loss by Wins Boxplot")
+
+# Mydat$age vs Mydat$wins
+outlier2 <- boxplot(Mydat$age ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier2
+boxplot(Mydat$age ~ Mydat$wins, data = training, main = "Glucose by Wins Boxplot")
+
+# Mydat$points vs Mydat$wins
+outlier3 <- boxplot(Mydat$points ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier3
+boxplot(Mydat$points ~ Mydat$wins, data = training, main = "Blood Pressure by Wins Boxplot")
+
+# Mydat$gamesPlayed vs Mydat$wins
+outlier4 <- boxplot(Mydat$gamesPlayed ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier4
+boxplot(Mydat$gamesPlayed ~ Mydat$wins, data = training, main = "Skin Thickness by Wins Boxplot")
+
+# Mydat$mins vs Mydat$wins
+outlier5 <- boxplot(Mydat$mins ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier5
+boxplot(Mydat$mins ~ Mydat$wins, data = training, main = "Insulin by Wins Boxplot")
+
+# Mydat$goalMade vs Mydat$wins
+outlier6 <- boxplot(Mydat$goalMade ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier6
+boxplot(Mydat$goalMade ~ Mydat$wins, data = training, main = "BMI by Wins Boxplot")
+
+# Mydat$goalAttempt vs Mydat$wins
+outlier7 <- boxplot(Mydat$goalAttempt ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier7
+boxplot(Mydat$goalAttempt ~ Mydat$wins, data = training, main = "Diabetes Pedigree Function by Wins Boxplot")
+
+# Mydat$goalPercentage vs Mydat$wins
+outlier8 <- boxplot(Mydat$goalPercentage ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier8
+boxplot(Mydat$goalPercentage ~ Mydat$wins, data = training, main = "Age by Wins Boxplot")
+
+# Mydat$threePM vs Mydat$wins
+outlier6 <- boxplot(Mydat$threePM ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier6
+boxplot(Mydat$threePM ~ Mydat$wins, data = training, main = "BMI by Wins Boxplot")
+
+# Mydat$threePA vs Mydat$wins
+outlier7 <- boxplot(Mydat$threePA ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier7
+boxplot(Mydat$threePA ~ Mydat$wins, data = training, main = "Diabetes Pedigree Function by Wins Boxplot")
+
+# Mydat$threePP vs Mydat$wins
+outlier8 <- boxplot(Mydat$threePP ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier8
+boxplot(Mydat$threePP ~ Mydat$wins, data = training, main = "Age by Wins Boxplot")
+
+# Mydat$freeTM vs Mydat$wins
+outlier6 <- boxplot(Mydat$freeTM ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier6
+boxplot(Mydat$freeTM ~ Mydat$wins, data = training, main = "BMI by Wins Boxplot")
+
+# Mydat$freeTA vs Mydat$wins
+outlier7 <- boxplot(Mydat$freeTA ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier7
+boxplot(Mydat$freeTA ~ Mydat$wins, data = training, main = "Diabetes Pedigree Function by Wins Boxplot")
+
+# Mydat$freeTP vs Mydat$wins
+outlier8 <- boxplot(Mydat$freeTP ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier8
+boxplot(Mydat$freeTP ~ Mydat$wins, data = training, main = "Age by Wins Boxplot")
+
+# Mydat$rebound vs Mydat$wins
+outlier6 <- boxplot(Mydat$rebound ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier6
+boxplot(Mydat$rebound ~ Mydat$wins, data = training, main = "BMI by Wins Boxplot")
+
+# Mydat$assist vs Mydat$wins
+outlier7 <- boxplot(Mydat$assist ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier7
+boxplot(Mydat$assist ~ Mydat$wins, data = training, main = "Diabetes Pedigree Function by Wins Boxplot")
+
+# Mydat$steal vs Mydat$wins
+outlier8 <- boxplot(Mydat$steal ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier8
+boxplot(Mydat$steal ~ Mydat$wins, data = training, main = "Age by Wins Boxplot")
+
+# Mydat$block vs Mydat$wins
+outlier7 <- boxplot(Mydat$block ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier7
+boxplot(Mydat$block ~ Mydat$wins, data = training, main = "Diabetes Pedigree Function by Wins Boxplot")
+
+# Mydat$rankings vs Mydat$wins
+outlier8 <- boxplot(Mydat$rankings ~ Mydat$wins, data = training, plot = FALSE)$out
+outlier8
+boxplot(Mydat$rankings ~ Mydat$wins, data = training, main = "Age by Wins Boxplot")
+
+#g. validation---------
+# validation using confusion matrix ----------------------------------
+# pred vs truth
+
+(cri_db <- external_validation(as.numeric(training$wins), db2$cluster, method = "adjusted_rand_index", summary_stats = T))
+
+# Compute the Variation of Information
+(vi_db <- external_validation(as.numeric(training$wins), db2$cluster, method = "var_info", summary_stats = F))
+```
